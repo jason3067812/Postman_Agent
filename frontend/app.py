@@ -1051,9 +1051,10 @@ with st.sidebar:
     
     with st.container():
         selected_collection = st.selectbox(
-            '',  # Remove the label
+            "Collection",  # Give it a proper label
             collection_files,
-            key="collection_select"
+            key="collection_select",
+            label_visibility="collapsed"  # Hide the label but keep it accessible
         )
         if selected_collection:
             load_cmd = f"Load the Postman collection from backend/data/collections/{selected_collection}"

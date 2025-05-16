@@ -2,16 +2,10 @@
 
 This project demonstrates the integration of a **Local LLM Agent** with **Postman Collection** data retrieval. It creates an intelligent assistant that can analyze, search, and extract information from Postman Collections while running entirely on your local machine.
 
-## 🌟 Key Features
+## 🖥️ User Interface
 
-- **Local LLM Integration**: Uses Ollama with Mistral-Nemo and Phi4-Mini for local inference without relying on cloud services
-- **Streaming Agent Reasoning**: See the agent's thought process in real-time with step-by-step streaming
-- **Action-equipped AI**: Agent can use specialized actions to analyze Postman Collections
-- **Beautiful UI**: Modern, responsive Streamlit interface with clean visualization of agent reasoning
-- **Robust Error Handling**: Gracefully handles errors and provides helpful feedback
-- **Collection Selection**: Select your Postman Collection JSON files from a designated folder in the UI
-- **Detailed Collection Analysis**: Get statistics, HTTP method analysis, endpoint details, and more
-- **Semantic Search (RAG)**: Uses HuggingFace sentence-transformers and ChromaDB for fast, persistent semantic search over endpoints
+![System-UI](img/UI.png)
+
 
 ## 📊 Technical Report
 
@@ -45,7 +39,7 @@ This project demonstrates the integration of a **Local LLM Agent** with **Postma
 
 ![Mistral-Nemo Benchmark](img/mistral_nemo_bidcodebench.png)
 
-*Benchmark results showing Mistral-Nemo's performance on code-related tasks.*
+*Benchmark results showing Mistral-Nemo's performance on BigCodeBench (code-related tasks).*
 
 ### Phi4-Mini Performance
 
@@ -216,7 +210,7 @@ If you haven't installed [Ollama](https://ollama.com/):
 - Pull the required models:
 
 ```bash
-# Pull Mistral-Nemo (used as the main router/supervisor)
+# Pull Mistral-Nemo (used as the main agent/router)
 ollama pull mistral-nemo
 
 # Pull Phi-4-Mini (used for coding and summarization tasks)
@@ -334,3 +328,4 @@ Here are some example queries to try:
 | Virtual environment issues | Ensure you have the correct Python version and venv package |
 | Package installation errors | Try `pip install --upgrade pip` before installing requirements |
 | .env/config errors | Double-check your .env file and variable names |
+

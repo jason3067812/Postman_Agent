@@ -8,7 +8,6 @@ from backend.config import *
 import pandas as pd
 from backend.schemas import *
 from backend.prompt import *
-from backend.store import collection_data, collection_df
 from backend.tools.rag_tools import ingest_endpoints_to_rag
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 import backend.store as store
@@ -156,8 +155,13 @@ def list_all_endpoints() -> List[str]:
                         path = url["raw"]
                 else:
                     path = str(url)
-                
-                endpoints.append(f"{method} {path} - {full_name}")
+            
+                endpoints.append({
+                    "parent_folder": parent_folder,
+                    "name": name,
+                    "method": method,
+                    "path": path,
+                })
             
             if "item" in item:
                 process_items(item["item"], full_name)
@@ -694,6 +698,11 @@ def ask_collection_analyst(query: str) -> str:
     Input a question and then the collection analyst will respond the answer based on the collection data.
     """
 
+    if store.collection_df is None or store.collection_df.empty:
+        return "No collection loaded. Please load a collection first using the load_postman_collection tool."
+    else:
+        print(store.collection_df.shape)
+
     from backend.agents import coder_llm
 
     collection_analyst_agent = create_pandas_dataframe_agent(
@@ -704,12 +713,7 @@ def ask_collection_analyst(query: str) -> str:
         name="collection_analyst_agent",
     )
 
-    if collection_df is None or collection_df.empty:
-        return "No collection loaded. Please load a collection first using the load_postman_collection tool."
-    
-    inputs = {"messages": [("user", query)]}
-
-    result = collection_analyst_agent.invoke(input=inputs)
+    result = collection_analyst_agent.invoke(input=query)
 
     print("Output result: ", result)
 
