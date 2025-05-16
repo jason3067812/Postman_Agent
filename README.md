@@ -4,14 +4,54 @@ This project demonstrates the integration of a **Local LLM Agent** with **Postma
 
 ## 🌟 Key Features
 
-- **Local LLM Integration**: Uses Ollama + Mistral for local inference without relying on cloud services
+- **Local LLM Integration**: Uses Ollama with Mistral-Nemo and Phi4-Mini for local inference without relying on cloud services
 - **Streaming Agent Reasoning**: See the agent's thought process in real-time with step-by-step streaming
-- **Tool-equipped AI**: Agent can use specialized tools to analyze Postman Collections
-- **Beautiful UI**: Modern, responsive Streamlit interface with clean visualization of agent reasoning (includes a custom logo in `frontend/img/postman.png`)
+- **Action-equipped AI**: Agent can use specialized actions to analyze Postman Collections
+- **Beautiful UI**: Modern, responsive Streamlit interface with clean visualization of agent reasoning
 - **Robust Error Handling**: Gracefully handles errors and provides helpful feedback
 - **Collection Selection**: Select your Postman Collection JSON files from a designated folder in the UI
 - **Detailed Collection Analysis**: Get statistics, HTTP method analysis, endpoint details, and more
 - **Semantic Search (RAG)**: Uses HuggingFace sentence-transformers and ChromaDB for fast, persistent semantic search over endpoints
+
+## 📊 Technical Report
+
+### Model Selection
+- **Mistral-Nemo**: Used as the main agent because it supports tool calling functionality, which is essential for the agent's ability to use specialized actions to interact with Postman collections
+- **Phi4-Mini**: Used for coding and summarization tasks due to its superior performance on coding benchmarks, despite not supporting tool calling directly
+
+### Technology Stack
+- **Backend Server**: FastAPI for high-performance API endpoints with asynchronous support
+- **LLM Integration**: LangChain and LangGraph for agent orchestration, with Ollama enabling fast local model deployment
+- **Observability**: Integrated with LangFuse to track each step for debugging and iteration
+- **Vector Database**: ChromaDB for efficient storage and retrieval of embeddings used in semantic search
+- **Model Size Considerations**: Models in the 3B–15B parameter range are selected to balance inference speed and hardware requirements for local deployment
+
+### Future Improvements
+- **Switch to vLLM**: Replace Ollama with vLLM for improved inference performance and throughput
+- **Enhanced Evaluation**: Implement LLM-as-judge for better agent response evaluation
+- **Safety Guardrails**: Add NeMo Guardrails for content filtering and safety
+- **Fallback Handling**: Develop specialized fallback handling agents for error recovery
+- **Memory Management**: Implement advanced memory systems like Letta or Mem0 for better context retention
+
+## 🔄 System Diagram
+
+![System Architecture Diagram](img/Blank%20diagram.png)
+
+*The diagram illustrates the flow of data and interactions between the different components of the system.*
+
+## 📊 Model Benchmarks
+
+### Mistral-Nemo Performance
+
+![Mistral-Nemo Benchmark](img/mistral_nemo_bidcodebench.png)
+
+*Benchmark results showing Mistral-Nemo's performance on code-related tasks.*
+
+### Phi4-Mini Performance
+
+![Phi4-Mini Benchmark](img/phi4mini_benchmark.png)
+
+*Benchmark results demonstrating Phi4-Mini's superior performance on coding tasks, which is why it was selected for code summarization and analysis.*
 
 ## 📦 Project Structure
 
@@ -19,20 +59,23 @@ This project demonstrates the integration of a **Local LLM Agent** with **Postma
 project/
 ├── backend/
 │   ├── main.py            # FastAPI server
-│   ├── agent.py           # Agent configuration, tools, streaming
+│   ├── agents.py          # Agent configuration, actions, streaming
+│   ├── actions.py         # Action implementations
+│   ├── prompt.py          # LLM system prompts
 │   ├── config.py          # Configuration settings
+│   ├── schemas.py         # Pydantic schemas
+│   ├── store.py           # Shared state storage
 │   ├── tools/
-│   │   ├── postman_tools.py      # Postman Collection Tools
-│   │   └── postman_rag_tools.py  # RAG/semantic search tools
+│   │   ├── rag_tools.py   # RAG/semantic search tools
 │   ├── data/
 │   │   ├── collections/   # Place your Postman Collection JSON files here
 │   │   └── chroma_db/     # Persistent vector DB for semantic search
 ├── frontend/
 │   ├── app.py             # Streamlit UI frontend
-│   └── img/postman.png    # Logo image for UI
+│   ├── styles/            # CSS styling
+│   └── img/               # UI images and assets
 ├── requirements.txt       # Python dependencies
 ├── README.md              # Documentation
-├── sample_postman_collection.json # Example collection for demo/testing
 ```
 
 ## 🔧 Setup Instructions
@@ -125,7 +168,7 @@ With your virtual environment activated, install the required packages:
 pip install -r requirements.txt
 ```
 
-This will install all the necessary dependencies listed in the requirements.txt file, including Streamlit, FastAPI, LangChain, ChromaDB, and HuggingFace sentence-transformers for semantic search.
+This will install all the necessary dependencies listed in the requirements.txt file, including Streamlit, FastAPI, LangChain, langgraph, ChromaDB, and HuggingFace sentence-transformers for semantic search.
 
 To verify installations:
 
@@ -137,14 +180,15 @@ pip list
 
 The application uses a `.env` file to manage configuration and API keys. 
 
-> **Note:** If there is no `env.example` file, simply create a new file named `.env` in the project root and add the following variables as needed.
+Create a new file named `.env` in the project root and add the following variables:
 
 ```
 # API Keys
-TAVILY_API_KEY=your_tavily_api_key_here  # Get this from tavily.com
+TAVILY_API_KEY=your_tavily_api_key_here  # Get this from tavily.com for web search
 
 # LLM Configuration
-LLM_MODEL=mistral-nemo
+MAIN_LLM_MODEL=mistral-nemo    # Main router/supervisor model
+CODING_LLM_MODEL=phi           # Model for coding and summarization tasks
 LLM_TEMPERATURE=0.1
 LLM_NUM_PREDICT=128000
 
@@ -169,11 +213,21 @@ If you haven't installed [Ollama](https://ollama.com/):
 
 - Install Ollama on your machine (available for macOS, Linux, and Windows)
 - Start the Ollama server
-- Pull the `mistral-nemo` model:
+- Pull the required models:
 
 ```bash
+# Pull Mistral-Nemo (used as the main router/supervisor)
 ollama pull mistral-nemo
+
+# Pull Phi-4-Mini (used for coding and summarization tasks)
+ollama pull phi4-mini
 ```
+
+#### Model Selection Strategy
+
+This project uses a dual-model approach:
+- **Mistral-Nemo**: Used as the main router/supervisor for general chat interactions and action routing
+- **Phi-4-Mini**: Specialized model for coding-related tasks and text summarization due to its superior performance on coding benchmarks
 
 ⚡ **Make sure Ollama is running in the background.**
 
@@ -185,10 +239,7 @@ ollama pull mistral-nemo
 backend/data/collections/
 ```
 
-The application will only recognize and allow you to select collections from this folder. There is no file upload feature in the UI. You must manually copy or move your files here before starting the app.
-
-> **A sample collection is provided:**
-> - `sample_postman_collection.json` (covers basic users and products endpoints for demo/testing)
+The application will only recognize and allow you to select collections from this folder. You must manually copy or move your files here before starting the app.
 
 ### 7. Start Backend Server (FastAPI)
 
@@ -226,7 +277,8 @@ http://localhost:8501
    - Select a Postman Collection JSON file from the dropdown (these are the files you placed in `backend/data/collections`)
    - Try example queries with one-click buttons
 3. Enter your question in the chat input field, for example:
-   - "Load the Postman collection from backend/data/collections/sample_postman_collection.json"
+   - "List all available collections"
+   - "Load a Postman collection"
    - "List all endpoints in the collection"
    - "Search for endpoints related to 'account'"
    - "Analyze the HTTP methods used in the collection"
@@ -234,32 +286,33 @@ http://localhost:8501
 
 4. Watch the agent:
    - Think through the problem
-   - Call relevant tools
+   - Call relevant actions
    - Return structured information
    - Provide a final answer
 
-## 🧰 Available Tools
+## 🧰 Available Actions
 
-The agent has access to these specialized tools:
+The agent has access to these specialized actions:
 
-1. **list_collections**: List all available Postman Collection JSON files in `backend/data/collections`
-2. **load_postman_collection**: Load and parse a Postman Collection JSON file
+1. **load_postman_collection**: Load and parse a Postman Collection JSON file
+2. **clear_collection**: Clear the loaded collection from memory
 3. **list_all_endpoints**: List all API endpoints from the loaded collection
-4. **search_endpoints_by_keyword**: Search endpoints containing a specific keyword (fuzzy search)
-5. **summarize_collection**: Provide a summary of the loaded collection (with LLM-powered summary)
+4. **search_endpoints_by_keyword**: Search endpoints containing a specific keyword
+5. **summarize_collection**: Provide a summary of the loaded collection
 6. **get_endpoint_details**: Get detailed information about a specific endpoint
 7. **analyze_collection_methods**: Analyze HTTP methods used in the collection
 8. **extract_request_examples**: Extract and analyze request examples
-9. **rag_search_endpoints**: Semantic search for endpoints using RAG (retrieval-augmented generation)
-10. **web_search**: Search the web for additional information (using Tavily)
-11. **clear_collection**: Clear the loaded collection from memory
+9. **rag_search_endpoints**: Semantic search for endpoints using RAG
+10. **ask_collection_analyst**: Get specialized analysis of the collection
+11. **ask_software_engineer**: Get technical insights about the API
+12. **web_search**: Search the web for additional information (using Tavily)
 
 ## 💡 Example Queries
 
 Here are some example queries to try:
 
 - "List all available collections"
-- "Load the Postman collection from backend/data/collections/sample_postman_collection.json"
+- "Load a Postman collection"
 - "What is this collection about?"
 - "List all the GET endpoints"
 - "Find endpoints related to users"
@@ -268,13 +321,12 @@ Here are some example queries to try:
 - "Show me some example POST requests"
 - "What authentication methods are used in this API?"
 
-
 ## 🔍 Troubleshooting
 
 | Problem | Solution |
 |:---|:---|
 | Backend not reachable | Check if Ollama is running, port 8000 is open |
-| Model missing | Run `ollama pull mistral` |
+| Model missing | Run `ollama pull mistral-nemo` or `ollama pull phi4-mini` |
 | API Key error | Make sure TAVILY_API_KEY is set correctly in your .env |
 | Streamlit not updating | Refresh the browser tab |
 | File selection errors | Make sure your JSON files are in `backend/data/collections` |

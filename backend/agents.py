@@ -8,54 +8,30 @@ import os
 import json
 import time
 from backend.config import *
-from langfuse.client import Langfuse
 from langfuse.callback import CallbackHandler
 import re
+from backend.tools.rag_tools import (
+    rag_search_endpoints,
+)
+from backend.prompt import *
+from backend.actions import *
+
 
 os.environ["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_CONFIG["langfuse_public_key"]
 os.environ["LANGFUSE_SECRET_KEY"] = LANGFUSE_CONFIG["langfuse_secret_key"]
 os.environ["LANGFUSE_HOST"] = LANGFUSE_CONFIG["langfuse_host"]
 os.environ["TAVILY_API_KEY"] = TOOL_CONFIG["tavily_api_key"]
 
-from backend.tools.postman_tools import (
-    load_postman_collection,
-    list_all_endpoints,
-    search_endpoints_by_keyword,
-    summarize_collection,
-    get_endpoint_details,
-    analyze_collection_methods,
-    extract_request_examples,
-    list_collections,
-    clear_collection,
-    count_endpoints,
-    dataframe_analyzer,
-)
-
-from backend.tools.postman_rag_tools import (
-    rag_search_endpoints,
-)
-
-from backend.prompt import MAIN_REACT_AGENT_SYSTEM_PROMPT
 
 def remove_angle_brackets_around_url(text):
-    # This matches <http://...> or <https://...> and removes the angle brackets
     return re.sub(r'<(https?://[^>]+)>', r'\1', text)
 
-# Setup LLM
-react_agent = ChatOllama(
-    model=MEDIUM_MODEL,
-    num_predict=OUTPUT_TOKENS,
-    verbose=True,
-    **BALANCED_DECODER_SETTINGS
-)
-
-# Setup Tavily tool with error handling
 tavily_tool = TavilySearchResults(
     max_results=TOOL_CONFIG["tavily_max_results"],
 )
 
 # Collection of tools with better descriptions
-tools = [
+actions = [
     tavily_tool,
     load_postman_collection,
     clear_collection,
@@ -66,13 +42,10 @@ tools = [
     analyze_collection_methods,
     extract_request_examples,
     rag_search_endpoints,
-    list_collections,
-    count_endpoints,
-    dataframe_analyzer,
+    ask_collection_analyst,
+    ask_software_engineer,
 ]
 
-# Enhanced prompt template for better agent performance
-system_prompt = MAIN_REACT_AGENT_SYSTEM_PROMPT
 
 # Setup Memory with maximum history limit
 chat_history = ChatMessageHistory()
@@ -83,14 +56,38 @@ memory = ConversationBufferMemory(
     max_token_limit=MEMORY_CONFIG.get("max_token_limit", 4096),
 )
 
-# Create prompt with the enhanced system message
+system_prompt = MAIN_REACT_AGENT_SYSTEM_PROMPT
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
     MessagesPlaceholder(variable_name="messages"),
 ])
 
-# Build agent graph with enhanced prompt
-graph = create_react_agent(react_agent, tools=tools, prompt=prompt)
+
+supervisor = create_react_agent(
+    model=ChatOllama(
+        model=MEDIUM_MODEL,
+        num_predict=OUTPUT_TOKENS,
+        verbose=True,
+        **BALANCED_DECODER_SETTINGS
+    ),
+    tools=actions,
+    prompt=prompt,
+    name="supervisor",
+)
+
+summarizer_llm = ChatOllama(
+    model=SMALL_MODEL,
+    verbose=True,
+    **CREATIVE_DECODER_SETTINGS
+)
+
+coder_llm = ChatOllama(
+    model=SMALL_MODEL,
+    verbose=True,
+    **CONCISE_DECODER_SETTINGS
+)
+
+# ======================================
 
 def reset_memory():
     """
@@ -126,7 +123,7 @@ def agent_stream(user_input: str):
         langfuse_handler = CallbackHandler(trace_name="/chat/")
 
         # Stream the agent's response
-        stream = graph.stream(input=inputs, stream_mode="values", config={"callbacks": [langfuse_handler]})
+        stream = supervisor.stream(input=inputs, stream_mode="values", config={"callbacks": [langfuse_handler]})
 
         final_response = ""
         tool_calls_made = 0

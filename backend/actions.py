@@ -1,27 +1,18 @@
 from typing import List, Dict, Optional, Any
 import json
-from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 import os
 from collections import Counter
-from pathlib import Path
-from rapidfuzz import fuzz, process
-from langchain_ollama import ChatOllama
+from rapidfuzz import fuzz
 from backend.config import *
 import pandas as pd
-from langchain.agents.agent_types import AgentType
-from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
-from backend.tools.postman_schemas import (
-    LoadPostmanCollectionInput,
-    SearchEndpointsInput,
-    EndpointDetailsInput,
-    DataframeAnalyzerInput
-)
-from backend.tools.postman_rag_tools import ingest_endpoints_to_rag
+from backend.schemas import *
 from backend.prompt import *
+from backend.store import collection_data, collection_df
+from backend.tools.rag_tools import ingest_endpoints_to_rag
+from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+import backend.store as store
 
-collection_data = None
-collection_df = None
 
 def normalize_path(file_path: str) -> str:
     """
@@ -58,18 +49,24 @@ def load_postman_collection(file_path: str) -> str:
     """
     Load and parse a Postman Collection JSON file from backend/data/collections only.
     """
-    global collection_data, collection_df
-    # Only allow loading from the fixed directory
-    collections_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'collections')
+    
+    collections_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'collections')
+    print(f"[load_postman_collection] collections_dir: {collections_dir}")
     target_path = os.path.join(collections_dir, os.path.basename(file_path))
+    print(f"[load_postman_collection] target_path: {target_path}")
     if not os.path.exists(target_path):
+        print(f"[load_postman_collection] File not found: {target_path}")
         available_files = [f for f in os.listdir(collections_dir) if f.endswith('.json')]
         file_suggestions = "\n".join([f"- {f}" for f in available_files])
+        print(f"[load_postman_collection] Available files: {available_files}")
         return f"Error: File not found: {target_path}\nAvailable files in collections directory:\n{file_suggestions}"
     try:
+        print(f"[load_postman_collection] Opening file: {target_path}")
         with open(target_path, "r", encoding="utf-8") as f:
-            collection_data = json.load(f)
-        collection_name = collection_data.get("info", {}).get("name", "Unnamed Collection")
+            store.collection_data = json.load(f)
+        print(f"[load_postman_collection] Loaded JSON successfully.")
+        collection_name = store.collection_data.get("info", {}).get("name", "Unnamed Collection")
+        print(f"[load_postman_collection] Collection name: {collection_name}")
 
         # Convert to DataFrame
         def flatten_postman_items(items, parent_folder=''):
@@ -78,6 +75,7 @@ def load_postman_collection(file_path: str) -> str:
                 if 'item' in item:
                     # Folder level - recurse
                     folder_name = f"{parent_folder}/{item['name']}" if parent_folder else item['name']
+                    print(f"[flatten_postman_items] Entering folder: {folder_name}")
                     rows.extend(flatten_postman_items(item['item'], folder_name))
                 else:
                     request = item.get('request', {})
@@ -92,36 +90,40 @@ def load_postman_collection(file_path: str) -> str:
                         'endpoint_body': request.get('body', {}),
                         'parent_folder': parent_folder,
                     }
+                    print(f"[flatten_postman_items] Adding endpoint: {row['endpoint_name']} (method: {row['endpoint_method']}, url: {row['endpoint_url']})")
                     rows.append(row)
             return rows
 
-        flattened = flatten_postman_items(collection_data.get('item', []))
-        collection_df = pd.DataFrame(flattened)
+        flattened = flatten_postman_items(store.collection_data.get('item', []))
+        print(f"[load_postman_collection] Flattened {len(flattened)} endpoints.")
+        store.collection_df = pd.DataFrame(flattened)
+        print(f"[load_postman_collection] DataFrame created with shape: {store.collection_df.shape}")
 
         # Optional: trigger ingestion process
         try:
+            print(f"[load_postman_collection] Triggering ingest_endpoints_to_rag()...")
             ingest_result = ingest_endpoints_to_rag()
+            print(f"[load_postman_collection] Ingest result: {ingest_result}")
         except Exception as e:
             print(f"[load_postman_collection] Error ingesting to RAG: {str(e)}")
 
-        return f"✅ Collection '{collection_name}' loaded, ingested to veector db, and converted to dataframe successfully and ready for analysis."
+        return f"Collection '{collection_name}' loaded, ingested to veector db, and converted to dataframe successfully and ready for analysis."
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"[load_postman_collection] JSONDecodeError: {str(e)}")
         return "Error: The file does not contain valid JSON data."
     except Exception as e:
+        print(f"[load_postman_collection] Exception: {str(e)}")
         return f"Failed to load collection: {str(e)}"
     
-
-
 @tool("clear_collection")
 def clear_collection() -> str:
     """
     Clear the currently loaded Postman Collection from memory. No input is required.
     """
-    global collection_data
-    collection_data = None
+    store.collection_data = None
 
-    return "✅ Collection has been successfully cleared from memory."
+    return "Collection has been successfully cleared from memory."
 
 @tool("list_all_endpoints")
 def list_all_endpoints() -> List[str]:
@@ -129,7 +131,7 @@ def list_all_endpoints() -> List[str]:
     List all API endpoints from the loaded Postman Collection.
     """
 
-    if not collection_data:
+    if not store.collection_data:
         return ["No collection loaded. Please load a collection first using the load_postman_collection tool."]
     
     endpoints = []
@@ -160,7 +162,7 @@ def list_all_endpoints() -> List[str]:
             if "item" in item:
                 process_items(item["item"], full_name)
     
-    process_items(collection_data.get("item", []))
+    process_items(store.collection_data.get("item", []))
     
     if not endpoints:
         return ["No endpoints found in the collection."]
@@ -177,7 +179,7 @@ def search_endpoints_by_keyword(keyword: str, threshold: int = 60, max_results: 
         threshold: Similarity threshold (0-100) for fuzzy matching. Default is 60.
         max_results: Maximum number of results to return. Default is 20.
     """
-    if not collection_data:
+    if not store.collection_data:
         return ["No collection loaded. Please load a collection first using the load_postman_collection tool."]
     
     keyword = keyword.lower()
@@ -252,7 +254,7 @@ def search_endpoints_by_keyword(keyword: str, threshold: int = 60, max_results: 
             if "item" in item:
                 search_items(item["item"], full_name)
     
-    search_items(collection_data.get("item", []))
+    search_items(store.collection_data.get("item", []))
     
     if not matches_with_scores:
         return [f"No items found containing '{keyword}' with similarity threshold of {threshold}%."]
@@ -282,7 +284,7 @@ def get_endpoint_details(endpoint_name: str) -> str:
     """
     Get detailed information about a specific endpoint, including parameters, headers, and example responses.
     """
-    if not collection_data:
+    if not store.collection_data:
         return "No collection loaded. Please load a collection first using the load_postman_collection tool."
     
     endpoint_name = endpoint_name.lower()
@@ -304,7 +306,7 @@ def get_endpoint_details(endpoint_name: str) -> str:
         
         return False
     
-    find_endpoint(collection_data.get("item", []))
+    find_endpoint(store.collection_data.get("item", []))
     
     if not found_endpoint:
         return f"No endpoint found with name containing '{endpoint_name}'. Try using search_endpoints_by_keyword to find the correct name."
@@ -391,7 +393,7 @@ def analyze_collection_methods() -> str:
     """
     Analyze the HTTP methods used in the collection and provide statistics.
     """
-    if not collection_data:
+    if not store.collection_data:
         return "No collection loaded. Please load a collection first using the load_postman_collection tool."
     
     methods = []
@@ -414,7 +416,7 @@ def analyze_collection_methods() -> str:
             if "item" in item:
                 collect_methods(item["item"], full_name)
     
-    collect_methods(collection_data.get("item", []))
+    collect_methods(store.collection_data.get("item", []))
     
     if not methods:
         return "No endpoints with HTTP methods found in the collection."
@@ -451,7 +453,7 @@ def extract_request_examples() -> str:
     """
     Extract and analyze request examples from the collection.
     """
-    if not collection_data:
+    if not store.collection_data:
         return "No collection loaded. Please load a collection first using the load_postman_collection tool."
     
     examples = []
@@ -487,7 +489,7 @@ def extract_request_examples() -> str:
             if "item" in item:
                 extract_examples(item["item"], full_name)
     
-    extract_examples(collection_data.get("item", []))
+    extract_examples(store.collection_data.get("item", []))
     
     if not examples:
         return "No request examples found in the collection."
@@ -521,16 +523,6 @@ def extract_request_examples() -> str:
     
     return analysis
 
-@tool("list_collections")
-def list_collections() -> List[str]:
-    """
-    List all available Postman Collection JSON files in backend/data/collections.
-    """
-    collections_dir = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "data" / "collections"
-    if collections_dir.exists() and collections_dir.is_dir():
-        return [f.name for f in collections_dir.glob("*.json")]
-    else:
-        return []
 
 @tool("count_endpoints")
 def count_endpoints() -> str:
@@ -538,7 +530,7 @@ def count_endpoints() -> str:
     Count the total number of endpoints in the loaded Postman Collection and provide statistics.
     No input parameters are required for this tool.
     """
-    if not collection_data:
+    if not store.collection_data:
         return "No collection loaded. Please load a collection first using the load_postman_collection tool."
     
     total_endpoints = 0
@@ -566,7 +558,7 @@ def count_endpoints() -> str:
             if "item" in item:
                 count_items(item["item"], current_folder)
     
-    count_items(collection_data.get("item", []))
+    count_items(store.collection_data.get("item", []))
     
     if total_endpoints == 0:
         return "No endpoints found in the collection."
@@ -594,52 +586,33 @@ def count_endpoints() -> str:
     return result
 
 
-@tool("dataframe_analyzer", args_schema=DataframeAnalyzerInput)
-def dataframe_analyzer(query: str) -> str:
-    """
-    Input a question and then the dataframe analyst will respond the answer based on the collection data.
-    """
-
-    if collection_df is None or collection_df.empty:
-        return "No collection loaded. Please load a collection first using the load_postman_collection tool."
-
-    agent = create_pandas_dataframe_agent(
-        ChatOllama(
-            model=LARGE_MODEL,
-            **CONCISE_DECODER_SETTINGS
-        ),
-        collection_df,
-        verbose=True,
-        allow_dangerous_code=True
-    )
-
-    result = agent.invoke(query)
-
-    print("Output result: ", result)
-
-    return result
-
-
 
 @tool("summarize_collection")
 def summarize_collection() -> str:
     """
     Provide a summary of the loaded Postman Collection, including LLM-based summary.
     """
-    if not collection_data:
+
+    print("[summarize_collection] Called summarize_collection tool.")
+
+    if not store.collection_data:
+        print("[summarize_collection] No collection loaded.")
         return "No collection loaded. Please load a collection first using the load_postman_collection tool."
-    
+
     try:
-        collection_info = collection_data.get("info", {})
+        print("[summarize_collection] Extracting collection info...")
+        collection_info = store.collection_data.get("info", {})
         name = collection_info.get("name", "Unnamed Collection")
         description = collection_info.get("description", "No description available")
         description_short = description.split("\n")[0][:250] + "..."
-        
+        print(f"[summarize_collection] Collection name: {name}")
+        print(f"[summarize_collection] Description (short): {description_short}")
+
         # Count endpoints and folders
         endpoints_count = 0
         folders_count = 0
         endpoint_names = []
-        
+
         def count_items(items):
             nonlocal endpoints_count, folders_count, endpoint_names
             for item in items:
@@ -649,9 +622,12 @@ def summarize_collection() -> str:
                 if "item" in item:
                     folders_count += 1
                     count_items(item["item"])
-        
-        count_items(collection_data.get("item", []))
-        
+
+        print("[summarize_collection] Counting endpoints and folders...")
+        count_items(store.collection_data.get("item", []))
+        print(f"[summarize_collection] Total endpoints: {endpoints_count}")
+        print(f"[summarize_collection] Total folders: {folders_count}")
+
         # Count HTTP methods
         methods = []
         def collect_methods(items):
@@ -661,10 +637,12 @@ def summarize_collection() -> str:
                     methods.append(method)
                 if "item" in item:
                     collect_methods(item["item"])
-        collect_methods(collection_data.get("item", []))
+        print("[summarize_collection] Collecting HTTP methods...")
+        collect_methods(store.collection_data.get("item", []))
         method_counts = dict(Counter(methods))
+        print(f"[summarize_collection] HTTP method counts: {method_counts}")
         methods_summary = ", ".join([f"{method}: {count}" for method, count in method_counts.items()])
-        
+
         # Compose statistics
         statistics = f"""
 # Collection Summary: {name}
@@ -677,28 +655,83 @@ def summarize_collection() -> str:
 - Total Folders: {folders_count}
 - HTTP Methods: {methods_summary}
 """
-        
-        # Prepare LLM input (truncate to 8192 tokens/characters for safety)
+
+        # Prepare LLM input (truncate to 32000 characters for safety)
         endpoint_list = "\n".join(endpoint_names)
         llm_input = f"Collection Description:\n{description}\n\nEndpoint Names:\n{endpoint_list}"
         llm_input = llm_input[:32000]
-        
+        print(f"[summarize_collection] Prepared LLM input (length: {len(llm_input)})")
+
         # Call Ollama LLM for summary
         try:
-            llm = ChatOllama(
-                model=LARGE_MODEL,
-                verbose=True,
-                **CREATIVE_DECODER_SETTINGS
-            )
+            print("[summarize_collection] Importing summarizer_llm and preparing prompt...")
+            from backend.agents import summarizer_llm
 
             prompt = SUMMERIZE_COLLECTION_PROMPT.format(description=description, endpoint_list=endpoint_list)
-            response = llm.invoke([{"role": "system", "content": SUMMARIZER_SYSTEM_PROMPT}, {"role": "user", "content": prompt}])
+            print("[summarize_collection] Invoking summarizer_llm...")
+            response = summarizer_llm.invoke([
+                {"role": "system", "content": SUMMARIZER_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ])
 
             llm_summary = response.content if hasattr(response, "content") else str(response)
+            print("[summarize_collection] LLM summary received.")
         except Exception as e:
+            print(f"[summarize_collection] LLM summary failed: {str(e)}")
             llm_summary = f"(⚠️ LLM summary failed: {str(e)})"
-        
+
+        print("[summarize_collection] Returning summary.")
         return statistics.strip() + "\n\n## LLM Summary (Purpose & Features)\n" + llm_summary.strip()
-    
+
     except Exception as e:
+        print(f"[summarize_collection] Error generating summary: {str(e)}")
         return f"Error generating summary: {str(e)}"
+
+
+@tool("ask_collection_analyst", args_schema=DataframeAnalyzerInput)
+def ask_collection_analyst(query: str) -> str:
+    """
+    Input a question and then the collection analyst will respond the answer based on the collection data.
+    """
+
+    from backend.agents import coder_llm
+
+    collection_analyst_agent = create_pandas_dataframe_agent(
+        coder_llm,
+        store.collection_df,
+        verbose=True,
+        allow_dangerous_code=True,
+        name="collection_analyst_agent",
+    )
+
+    if collection_df is None or collection_df.empty:
+        return "No collection loaded. Please load a collection first using the load_postman_collection tool."
+    
+    inputs = {"messages": [("user", query)]}
+
+    result = collection_analyst_agent.invoke(input=inputs)
+
+    print("Output result: ", result)
+
+    return result
+
+
+@tool("ask_software_engineer", args_schema=SoftwareEngineerInput)
+def ask_software_engineer(query: str) -> str:
+    """
+    Ask the software engineer to write the code in the given programming language.
+    """
+
+    from backend.agents import coder_llm
+
+    answer = coder_llm.invoke([
+        {"role": "system", "content": SOFTWARE_ENGINEER_SYSTEM_PROMPT},
+        {"role": "user", "content": query + "\n\n" + "Let's think step by step."}
+    ]).content
+
+    print("Output result: ", answer)
+
+    return answer
+
+    
+

@@ -10,9 +10,9 @@ env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # MODEL NAMES
-SMALL_MODEL="phi4-mini"         # does not support tool usage, suitable for routing
+SMALL_MODEL="phi4-mini"         # does not support tool usage
 MEDIUM_MODEL="mistral-nemo"     # supports tool usage
-LARGE_MODEL="phi4"              # does not support tool usage, suitable for coding and other more complex tasks
+LARGE_MODEL="phi4"              # does not support tool usage
 
 # hyperparams
 CONCISE_DECODER_SETTINGS = {
@@ -22,7 +22,7 @@ CONCISE_DECODER_SETTINGS = {
 BALANCED_DECODER_SETTINGS = {
         "temperature": 0.2,
         "top_p": 0.95,
-        "top_k": 30
+        "top_k": 20
 }
 CREATIVE_DECODER_SETTINGS = {
     "temperature": 0.7,

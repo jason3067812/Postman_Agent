@@ -830,7 +830,9 @@ def format_tool_call(tool_call_text):
         'tavily_search': 'Web Search',
         'postman_tool': 'Postman Tool',
         'response_from_postman': 'Response',
-        'clear_collection': 'Clear Collection'
+        'clear_collection': 'Clear Collection',
+        'ask_software_engineer': 'Software Engineer',
+        'ask_collection_analyst': 'Data Analyst'
     }
     
     # Get user-friendly name or use the original
@@ -862,17 +864,38 @@ def format_tool_call(tool_call_text):
         else:
             formatted_args = ""  # Empty string instead of "No parameters needed"
     
-    return f"""
-    <div class="tool-container">
-        <div class="tool-header">
-            <span class="tool-icon">🔧</span>
-            <span class="tool-name">{display_name}</span>
+    # Check if it's an ask tool - if so, change display format
+    if tool_data['name'].startswith('ask'):
+        # For 'ask' tools, show as "Talking to Agent" with a robot icon
+        agent_name = display_name
+        # Only do the generic replacement if we don't have a specific mapping
+        if tool_data['name'] not in tool_name_map:
+            agent_name = tool_data['name'].replace('ask_', '').replace('_', ' ').title()
+        
+        return f"""
+        <div class="tool-container">
+            <div class="tool-header" style="background-color: rgba(79, 148, 239, 0.15); border-bottom: 1px solid rgba(79, 148, 239, 0.25);">
+                <span class="tool-icon">🤖</span>
+                <span class="tool-name" style="color: var(--primary);">Talking to {agent_name}</span>
+            </div>
+            <div class="tool-content">
+                {formatted_args}
+            </div>
         </div>
-        <div class="tool-content">
-            {formatted_args}
+        """
+    else:
+        # Regular tool display
+        return f"""
+        <div class="tool-container">
+            <div class="tool-header">
+                <span class="tool-icon">🔧</span>
+                <span class="tool-name">{display_name}</span>
+            </div>
+            <div class="tool-content">
+                {formatted_args}
+            </div>
         </div>
-    </div>
-    """
+        """
 
 # Format successful responses
 def format_success_message(response_text):
@@ -887,14 +910,16 @@ def format_success_message(response_text):
     clean_text = clean_text.replace('<span>', '')
     clean_text = clean_text.replace('</span>', '')
     
-    # Normalize whitespace
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+   
+    clean_text = re.sub(r' {2,}', ' ', clean_text)
+
+    clean_text = clean_text.strip()
     
     # If the response is a success message
     if "✅" in clean_text or "success" in clean_text.lower() or "loaded" in clean_text.lower():
         return f"""
         <div class="success-container">
-            <span class="success-icon">✅</span>
+            <span class="success-icon"></span>
             {clean_text.replace("✅", "").strip()}
         </div>
         """
@@ -1045,10 +1070,8 @@ with st.sidebar:
     example_queries = [
         "List all endpoints in the collection",
         "Search for endpoints with the name 'generate'",
-        "Is there any endpoint to generate a manager insight?",
+        "Show me endpoints related to inserting data into the database.",
         "Summarize this Collection",
-        "Can you extract some request examples?",
-        "What are the different HTTP methods used in the collection?",
         "What is the best tutorial for learning api so far?"
     ]
     for i, query in enumerate(example_queries):
@@ -1202,12 +1225,25 @@ for message in st.session_state.messages:
                         'tavily_search': 'Web Search',
                         'postman_tool': 'Postman Tool',
                         'response_from_postman': 'Response',
-                        'clear_collection': 'Clear Collection'
+                        'clear_collection': 'Clear Collection',
+                        'ask_software_engineer': 'Software Engineer',
+                        'ask_collection_analyst': 'Data Analyst'
                     }
                     display_name = tool_name_map.get(tool_info['name'], tool_info['name'])
                     
                     # For Streamlit rendering, convert to markdown instead of HTML
-                    formatted_tool_call = f"#### 🔧 Using: {display_name}\n\n"
+                    # Check if it's an ask tool - if so, change display format
+                    if tool_info['name'].startswith('ask'):
+                        # For 'ask' tools, format as "Talking to Agent" with robot icon
+                        agent_name = display_name
+                        # Only do the generic replacement if we don't have a specific mapping
+                        if tool_info['name'] not in tool_name_map:
+                            agent_name = tool_info['name'].replace('ask_', '').replace('_', ' ').title()
+                        
+                        formatted_tool_call = f"#### 🤖 Talking to {agent_name}\n\n"
+                    else:
+                        # Regular tool display
+                        formatted_tool_call = f"#### 🔧 Using: {display_name}\n\n"
                     
                     # Add arguments if any
                     if tool_info['args']:
@@ -1233,7 +1269,7 @@ for message in st.session_state.messages:
                     clean_content.append(formatted_tool_call)
                     
                 # Process responses
-                elif line.startswith("Response:"):
+                elif line.startswith("🧠 Response:"):
                     # Extract actual text response by removing HTML tags
                     raw_text = line[12:].strip()  # Remove "🧠 Response:" prefix
                     
@@ -1241,7 +1277,7 @@ for message in st.session_state.messages:
                     j = i + 1
                     while j < len(lines) and not (lines[j].startswith("🔧 Tool Call:") or lines[j].startswith("🧠 Response:")):
                         if lines[j].strip():
-                            raw_text += "\n" + lines[j].strip()
+                            raw_text += "\n" + lines[j]  # 保留原始縮排，不使用 strip()
                         j += 1
                     
                     # Clean out any HTML tags completely and convert to markdown
@@ -1255,7 +1291,7 @@ for message in st.session_state.messages:
                     if "endpoints in the collection" in clean_text.lower() or "endpoint list" in clean_text.lower():
                         clean_content.append(f"#### Endpoint List\n\n{clean_text}")
                     elif "success" in clean_text.lower() or "loaded" in clean_text.lower():
-                        clean_content.append(f"#### Success\n\n{clean_text}")
+                        clean_content.append(f"{clean_text}")
                     # Check for RAG search results
                     elif 'last_successful_tool' in st.session_state and st.session_state.last_successful_tool.get('name') == 'rag_search_endpoints':
                         clean_content.append(f"#### RAG Search Results\n\n{clean_text}")
@@ -1337,7 +1373,7 @@ if prompt:
                         elif "Conversation history has been reset" in decoded:
                             is_reset_command = True
                             # Display the reset confirmation 
-                            response_placeholder.markdown(f"#### 🔄 Success\n\n{decoded}")
+                            response_placeholder.markdown(f"#### 🔄 Reset Complete\n\n{decoded}")
                             break
                         else:
                             # Skip system messages
@@ -1421,12 +1457,25 @@ if prompt:
                                         'tavily_search': 'Web Search',
                                         'postman_tool': 'Postman Tool',
                                         'response_from_postman': 'Response',
-                                        'clear_collection': 'Clear Collection'
+                                        'clear_collection': 'Clear Collection',
+                                        'ask_software_engineer': 'Software Engineer',
+                                        'ask_collection_analyst': 'Data Analyst'
                                     }
                                     display_name = tool_name_map.get(tool_info['name'], tool_info['name'])
                                     
                                     # For Streamlit rendering, convert to markdown instead of HTML
-                                    formatted_tool_call = f"#### 🔧 Using: {display_name}\n\n"
+                                    # Check if it's an ask tool - if so, change display format
+                                    if tool_info['name'].startswith('ask'):
+                                        # For 'ask' tools, format as "Talking to Agent" with robot icon
+                                        agent_name = display_name
+                                        # Only do the generic replacement if we don't have a specific mapping
+                                        if tool_info['name'] not in tool_name_map:
+                                            agent_name = tool_info['name'].replace('ask_', '').replace('_', ' ').title()
+                                        
+                                        formatted_tool_call = f"#### 🤖 Talking to {agent_name}\n\n"
+                                    else:
+                                        # Regular tool display
+                                        formatted_tool_call = f"#### 🔧 Using: {display_name}\n\n"
                                     
                                     # Add arguments if any
                                     if tool_info['args']:
@@ -1461,7 +1510,7 @@ if prompt:
                                     j = i + 1
                                     while j < len(lines) and not (lines[j].startswith("🔧 Tool Call:") or lines[j].startswith("🧠 Response:")):
                                         if lines[j].strip():
-                                            raw_text += "\n" + lines[j].strip()
+                                            raw_text += "\n" + lines[j]  # 保留原始縮排，不使用 strip()
                                         j += 1
                                     
                                     # Clean out any HTML tags completely and convert to markdown
@@ -1473,14 +1522,14 @@ if prompt:
                                     
                                     # Format based on content
                                     if "endpoints in the collection" in clean_text.lower() or "endpoint list" in clean_text.lower():
-                                        clean_content.append(f"#### 🧠 Endpoint List\n\n{clean_text}")
+                                        clean_content.append(f"#### Endpoint List\n\n{clean_text}")
                                     elif "success" in clean_text.lower() or "loaded" in clean_text.lower():
-                                        clean_content.append(f"#### ✅ Success\n\n{clean_text}")
+                                        clean_content.append(f"{clean_text}")
                                     # Check for RAG search results
                                     elif 'last_successful_tool' in st.session_state and st.session_state.last_successful_tool.get('name') == 'rag_search_endpoints':
                                         clean_content.append(f"#### RAG Search Results\n\n{clean_text}")
                                     else:
-                                        clean_content.append(f"#### 🧠 Response\n\n{clean_text}")
+                                        clean_content.append(f"#### Response\n\n{clean_text}")
                                     
                                     i = j - 1  # Skip processed lines
                                 # Process regular text

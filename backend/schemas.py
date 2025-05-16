@@ -3,6 +3,10 @@ from pydantic import BaseModel, Field
 class LoadPostmanCollectionInput(BaseModel):
     file_path: str = Field(..., description="Path to the Postman Collection JSON file.")
 
+class RAGSearchEndpointsInput(BaseModel):
+    query: str = Field(..., description="The search query to find relevant endpoints.")
+    top_k: int = Field(5, description="Number of top results to return.")
+
 class SearchEndpointsInput(BaseModel):
     keyword: str = Field(..., description="Keyword to search within endpoints.")
     threshold: int = Field(60, description="Similarity threshold (0-100) for fuzzy matching. Default is 60.")
@@ -13,3 +17,6 @@ class EndpointDetailsInput(BaseModel):
 
 class DataframeAnalyzerInput(BaseModel):
     query: str = Field(..., description="The user query in natural language text format.") 
+
+class SoftwareEngineerInput(BaseModel):
+    query: str = Field(..., description="The user query in natural language text format.")
