@@ -180,15 +180,6 @@ Create a new file named `.env` in the project root and add the following variabl
 # API Keys
 TAVILY_API_KEY=your_tavily_api_key_here  # Get this from tavily.com for web search
 
-# LLM Configuration
-MAIN_LLM_MODEL=mistral-nemo    # Main router/supervisor model
-CODING_LLM_MODEL=phi           # Model for coding and summarization tasks
-LLM_TEMPERATURE=0.1
-LLM_NUM_PREDICT=128000
-
-# Tool Configuration
-TAVILY_MAX_RESULTS=5
-
 # (Optional) Langfuse for tracing/monitoring
 LANGFUSE_PUBLIC_KEY=your_langfuse_public_key
 LANGFUSE_SECRET_KEY=your_langfuse_secret_key
